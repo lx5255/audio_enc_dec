@@ -4,6 +4,9 @@
 #define STREM_USE_BUFF      0x01
 #define STREM_MULT_BUFF     0x02
 
+#define WAVE_PCM            0x01
+#define WAVE_ADPCM          0x02
+
 enum {
     ENC_NO_DATA = 0x01,
     ENC_OUT_ERR,
@@ -26,7 +29,8 @@ typedef struct encoder_inf {
     unsigned int nch    : 2;
     encoder_strem_ops *strem_ops;
     void *priv;
-    unsigned char audio_strem_type;
+    unsigned int audio_strem_type : 8;
+    unsigned int rever : 24;
 }encoder_inf;
 
 typedef struct encoder_ops {
