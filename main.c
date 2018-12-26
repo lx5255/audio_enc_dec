@@ -20,7 +20,7 @@ int out_buf(void *priv, void *buf, int len)
 	}
 
 	ret = fwrite((void *)buf,  1, len, hdl->out_file);
-	printf("write file size %d hd %x file %x buf %x ret %d\n", len, hdl, hdl->out_file, buf, ret);
+	/* printf("write file size %d hd %x file %x buf %x ret %d\n", len, hdl, hdl->out_file, buf, ret); */
 	return ret;
 }
 
@@ -30,7 +30,7 @@ int int_buf(void *priv, void *buf, int len)
 	if(hdl == NULL){
 		return 0;
 	}
-	printf("read file size %d  hd %x file %x\n", len, hdl, hdl->in_file);
+	/* printf("read file size %d  hd %x file %x\n", len, hdl, hdl->in_file); */
 	return  fread((void *)buf,  1, len, hdl->in_file);
 }
 
