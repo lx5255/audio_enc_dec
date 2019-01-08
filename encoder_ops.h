@@ -5,7 +5,7 @@
 #define STREM_MULT_BUFF     0x02
 
 #define WAVE_PCM            0x01
-#define WAVE_ADPCM          0x02
+#define WAVE_ADPCM          0x11
 
 enum {
     ENC_NO_DATA = 0x01,

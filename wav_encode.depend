@@ -1,13 +1,13 @@
 # depslib dependency file v1.0
-1545809640 source:e:\mode_code\wav_encoder\wav_encode\main.c
+1546948157 source:e:\mode_code\wav_encoder\wav_encode\main.c
 	<stdio.h>
 	<stdlib.h>
 	"encoder_ops.h"
 
-1545807690 source:e:\mode_code\wav_encoder\wav_encode\wav_encoder.c
+1546948280 source:e:\mode_code\wav_encoder\wav_encode\wav_encoder.c
 	<stdio.h>
 	<stdlib.h>
 	"encoder_ops.h"
 
-1545792574 e:\mode_code\wav_encoder\wav_encode\encoder_ops.h
+1546949601 e:\mode_code\wav_encoder\wav_encode\encoder_ops.h
 

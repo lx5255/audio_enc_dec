@@ -11,6 +11,17 @@ struct encoder_hd{
 
 struct  encoder_hd hdl;
 
+void put_buf(void *buf, int len)
+{
+    int cnt = 0;
+    unsigned char *buff = buf;
+    while(len--){
+       printf("%02x ", *buff++);  
+       if(++cnt == 16){
+            printf("\n");  
+       }
+    }
+}
 int out_buf(void *priv, void *buf, int len)
 {
 	int ret;
@@ -19,8 +30,9 @@ int out_buf(void *priv, void *buf, int len)
 		return 0;
 	}
 
+    put_buf(buf, len);
 	ret = fwrite((void *)buf,  1, len, hdl->out_file);
-	/* printf("write file size %d hd %x file %x buf %x ret %d\n", len, hdl, hdl->out_file, buf, ret); */
+	printf("write file size %d hd %x file %x buf %x ret %d\n", len, hdl, hdl->out_file, buf, ret);
 	return ret;
 }
 
@@ -79,7 +91,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	inf.audio_strem_type = hdl.ops_inf.audio_strem_type;
-	inf.nch = 2;
+	inf.nch = 1;
 	inf.priv = &hdl;
 	inf.sample = 44100;
 	inf.strem_ops = &ops_io;
