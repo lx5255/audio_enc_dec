@@ -5,13 +5,14 @@
 #define SYS_BIG_EDIAN   0 
 #define POINT_SIZE      2
 #define POINT_PBLOCK    8
-#define BLOCK_SIZE      512 
+#define BLOCK_SIZE      512//1024 
 #define SAM_PBLOCK      ((512)*2) 
 
 #define AUDIO_STREM_TYPE    STREM_USE_BUFF
 
 #define CACHE_BUFF_SIZE     512
 
+#if (WAVE_ADPCM==0x11)
 #define RID_OFFSET          0
 #define RLEN_OFFSET         4
 #define FLEN_OFFSET         16
@@ -39,7 +40,7 @@ typedef struct _TWavHeader {
     int nSamplesPerSec;   //采样频率
     int nAvgBytesPerSec;  //每秒的数据量
     short nBlockAlign;      //块对齐
-    short wBitsPerSample;   //WAVE文件的采样大小
+    short wBitsPerSample;   //量化数
     short nbSize;
     short nsamplesperblock;
     //FACT
@@ -50,7 +51,46 @@ typedef struct _TWavHeader {
     char dId[4];              //"data"
     int wSampleLength;    //音频数据的大小
 } TWavHeader ;
+#else
+#define RID_OFFSET          0
+#define RLEN_OFFSET         4
+#define FLEN_OFFSET         16
+#define FORMAT_OFFSET       20
+#define NCH_OFFSET          22
+#define SAMP_OFFSET         24
+#define AVGB_OFFSET         28
+#define BAL_OFFSET          32
+#define BPSA_OFFSET         34
+#define OTHER_OFFSET        36
+#define F2LEN_OFFSET        74 
+#define DLEN_OFFSET         78 
+#define WSALEN_OFFSET       86 
 
+#pragma pack(1)
+typedef struct _TWavHeader {
+    char rId[4];    //标志符（RIFF）
+    int rLen;   //数据大小,包括数据头的大小和音频文件的大小
+    char wId[4];    //格式类型（"WAVE"）
+    char fId[4];    //"fmt"
+    int fLen;   //Sizeof(WAVEFORMATEX)
+    //WAVEFORMATEX
+    short wFormatTag;       //编码格式，包括WAVE_FORMAT_PCM，WAVEFORMAT_ADPCM等
+    short nChannels;        //声道数，单声道为1，双声道为2
+    int nSamplesPerSec;   //采样频率
+    int nAvgBytesPerSec;  //每秒的数据量
+    short nBlockAlign;      //块对齐
+    short wBitsPerSample;   //量化数
+    char other[34];
+    //FACT
+    char f2id[4];              //"fact"
+    int f2len;
+    int dataLen;          //解码成PCM后数据长度
+    //DATA
+    char dId[4];              //"data"
+    int wSampleLength;    //音频数据的大小
+} TWavHeader __attribute__((packed));
+#pragma pack()
+#endif
 /* typedef struct { */
 /*    short cur_value; */
 /*    short diff_value; */
@@ -133,6 +173,7 @@ int ld_dword_func(char *p)
 
 static void wav_head_creat(TWavHeader *head, int sample, int nch)
 {
+    printf("head %d\n", sizeof(TWavHeader));
     if(head){
         memset(head, 0, sizeof(TWavHeader));
         memcpy(head->rId, "RIFF", 4);
@@ -144,15 +185,16 @@ static void wav_head_creat(TWavHeader *head, int sample, int nch)
         head->wFormatTag = WAVE_ADPCM;
         head->nChannels = nch;
         head->nSamplesPerSec  = sample;
-        /* while(1){ */
-        /*     printf("nch %d\n", nch); */
-        /* } */
-        head->nAvgBytesPerSec = sample * nch;
-        head->nBlockAlign     = nch * 0x400;
+        head->nAvgBytesPerSec = (sample * nch * BLOCK_SIZE)/((BLOCK_SIZE - 4)*2 + 1);
+        head->nBlockAlign     = BLOCK_SIZE;
         head->wBitsPerSample  = POINT_SIZE * 2;
         head->f2len = 4;
-        head->nbSize = 32;
-        head->nsamplesperblock = (BLOCK_SIZE - 4)*4 + 4;
+#if (WAVE_ADPCM == 2)
+        head->other[0] = 0x20;
+#else 
+        head->nbSize = 0x02;
+        head->nsamplesperblock = (BLOCK_SIZE - 4 * nch)*2 + 1;
+#endif
     }
 }
 
@@ -174,8 +216,11 @@ static int wav_head_to_buf(TWavHeader *head, char *buf)
    st_dword_func(&buf[F2LEN_OFFSET], head->f2len);
    st_dword_func(&buf[DLEN_OFFSET], head->dataLen);
    st_dword_func(&buf[WSALEN_OFFSET], head->wSampleLength);
+#if (WAVE_ADPCM == 2)
+#else
    st_dword_func(&buf[BSIZE_OFFSET], head->nbSize);
    st_dword_func(&buf[SAPB_OFFSET], head->nsamplesperblock);
+#endif
 #endif
    return sizeof(TWavHeader);
 }
@@ -230,10 +275,6 @@ static int wav_out_block(wav_encode *encode)
     return 0;
 }
 
-int AdaptionTable [] = {  //自适应表
-  230, 230, 230, 230, 307, 409, 512, 614,
-  768, 614, 512, 409, 307, 230, 230, 230
-};
 
 int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out); 
 static int wav_encode_run(void *priv)
@@ -265,8 +306,12 @@ static int wav_encode_run(void *priv)
             }
             MonoBlockHeader *bheadr = out_buf;
             bheadr->sample0 = *in_buf;
+            bheadr->index = encode->adpcm_l.index;
+            /* bheadr->sample0 = encode->adpcm_l.val_pre; */
             out_buf = encode->bbuf + sizeof(MonoBlockHeader);
+            printf("pre samp %d, samp0 %d\n", encode->adpcm_l.val_pre, bheadr->sample0);
             encode->adpcm_l.val_pre = bheadr->sample0;
+            /* encode->adpcm_l.val_pre = 0;  */
             encode->block_cnt++; 
         }
 
@@ -276,121 +321,15 @@ static int wav_encode_run(void *priv)
             return ENC_NO_DATA;
         }
         wav_enc_block(&encode->adpcm_l, in_buf, out_buf++); 
-        encode->head->dataLen+=4;
+        encode->head->dataLen+=4*POINT_SIZE;
 
-        if(++encode->block_cnt == 128){   //一个块127个段，再加一个起始采样点
+        if(++encode->block_cnt == (BLOCK_SIZE - 4)/4 + 1){   //一个块127个段，再加一个起始采样点
             encode->block_cnt = 0;
             if(wav_out_block(encode)){
                 return ENC_OUT_ERR;
             }
         }
     }
-
-#if 0
-    //encoder
-    if(encode->nch == 2){
-        for(point_cnt = 0; point_cnt < POINT_PBLOCK; point_cnt++){
-            if(encode->block_cnt == 0){ //写块头
-                StereoBlockHeader *bheadr = out_buf;
-                bheadr->rightbher.sample0 = *in_buf++;
-                bheadr->leftbher.sample0 = *in_buf++;
-                bheadr->rightbher.index;
-                bheadr->leftbher.index;
-                out_buf = encode->bbuf + sizeof(StereoBlockHeader);
-                encode->cur_value_l = bheadr->leftbher.sample0;
-                encode->cur_value_r = bheadr->rightbher.sample0;
-                encode->block_cnt += 8; 
-                encode->idDelta_l = (*(in_buf + 1) - bheadr->leftbher.sample0)/7;
-                encode->idDelta_r = (*in_buf - bheadr->rightbher.sample0)/7;
-                printf("new block cur_value_l %d  cur_value_r %d\n", encode->cur_value_l, encode->cur_value_r);
-                continue;
-            }
-
-            pre_sam = encode->cur_value_l + encode->diff_value_l; //预测下一个值 
-            sam_point = *(in_buf + 1);
-            encode->diff_value_l = (sam_point - encode->cur_value_l); //计算差值
-            encode->cur_value_l = sam_point;
-            sam_point = (sam_point - pre_sam); //计算差值
-            sam_point =encode->diff_value_l/encode->idDelta_l; //压缩 
-            if(sam_point > 7){
-                sam_point = 7;
-            }else if(sam_point < -7){
-                sam_point = -7;
-            }
-            sam_point &= 0xf;
-            encode->idDelta_l = encode->idDelta_l * AdaptionTable[sam_point] / 256; //重新计算
-            out_buf->sample0 = sam_point;
-
-
-            pre_sam = encode->cur_value_r + encode->diff_value_r; //预测下一个值 
-            sam_point = *in_buf;
-            encode->diff_value_r = (sam_point - encode->cur_value_r); //计算前后两点差值
-            encode->cur_value_r = sam_point;
-            sam_point = (sam_point - pre_sam); //计算预测差值
-            sam_point =encode->diff_value_r/encode->idDelta_r; //压缩 
-            if(sam_point > 7){
-                sam_point = 7;
-            }else if(sam_point < -7){
-                sam_point = -7;
-            }
-            sam_point &= 0xf;
-            encode->idDelta_r = encode->idDelta_r * AdaptionTable[sam_point] / 256; //重新计算
-            (out_buf + 1)->sample0 = sam_point;
-
-
-            printf("cur sam %d in sam %d pre sam %d diff %d sam_point 0x%x out_buf 0x%x\n", encode->cur_value_r, *in_buf, pre_sam, encode->diff_value_r, sam_point, *(int *)(out_buf + 1));
-            in_buf+=2; 
-            if(++encode->block_cnt %8 == 0){  //完成一个 wrod
-                printf("block_cnti %d\n", encode->block_cnt); 
-                out_buf+=2; 
-            }else{
-                *((int *)out_buf)>>=4;
-                *((int *)(out_buf + 1))>>=4;
-            }
-            if(encode->block_cnt == SAM_PBLOCK){
-                if(wav_out_block(encode)){
-                    return ENC_OUT_ERR;
-                }
-                encode->block_cnt = 0;
-            }
-        }
-        encode->head->dataLen +=   POINT_PBLOCK * POINT_SIZE * 2;
-    }else{
-        for(point_cnt = 0; point_cnt < POINT_PBLOCK*2; point_cnt++){
-            if(encode->block_cnt == 0){ //写块头
-                MonoBlockHeader *bheadr = out_buf;
-                bheadr->sample0 = *in_buf++;
-                bheadr->index++;
-                out_buf = encode->bbuf + sizeof(MonoBlockHeader);
-                encode->cur_value_l = bheadr->sample0;
-                /* encode->block_cnt++; */
-                encode->block_cnt += 8; 
-                continue;
-            }
-
-            sam_point = *in_buf - encode->cur_value_l;
-            if(sam_point > 7){
-                sam_point = 7;
-            }else if(sam_point < -7){
-                sam_point = -7;
-            }
-            out_buf->sample0 = sam_point;
-            printf("cur sam %d in sam %d sam_point 0x%x out_buf 0x%x", encode->cur_value_l, *in_buf, sam_point, *(int *)out_buf);
-            in_buf++; 
-            if(++encode->block_cnt %8 == 0){  //完成一个 wrod
-                out_buf++; 
-            }else{
-                *((int *)out_buf)>>=4;
-            }
-            if(encode->block_cnt == SAM_PBLOCK){
-                if(wav_out_block(encode)){
-                    return ENC_OUT_ERR;
-                }
-                encode->block_cnt = 0;
-            }
-        }
-    }
-#endif
     return 0;
 }
 
@@ -407,9 +346,7 @@ static void wav_get_header(void *priv)
 
     header->rLen = header->wSampleLength + sizeof(TWavHeader);
 
-
-     if(encode->strem_ops_type & STREM_MULT_BUFF){
-
+    if(encode->strem_ops_type & STREM_MULT_BUFF){
     } else{
         buf = encode->buff;
         header->rLen = header->wSampleLength + sizeof(TWavHeader);
@@ -466,6 +403,7 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
    short diff_val;
    short pre_diff;
    short step;
+   char sign;
    int i;
   
    *out = 0; 
@@ -474,10 +412,10 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
        *out &= 0xfffffff;
        diff_val = *in - adpcm_sta->val_pre; 
        if(diff_val < 0){
-           ad_val = 0x8;  
            diff_val = -diff_val;
+           sign = 0x8;  
        }else{
-           ad_val = 0x0;  
+           sign = 0x0;  
        }
         /* Note:  
         ** This code *approximately* computes:  
@@ -488,7 +426,9 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
         **      
         */
  
+       /* printf("index %d", adpcm_sta->index); */
        step = stepsizeTable[adpcm_sta->index];
+#if 0 
        pre_diff = step>>3;
        if(diff_val >= step){
            ad_val |= 0x4;
@@ -507,8 +447,14 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
            diff_val -= step;
            pre_diff += step;
        }
-
-       if(ad_val&0x8){
+#else
+        ad_val = (diff_val * 4)/step;  
+        ad_val &= 0x7;
+        /* pre_diff = ad_val*step/4 + step/8; */
+        /* pre_diff = diff_val+ (step/8);   */
+        pre_diff = ad_val*step/4 + (step/8);
+#endif
+       if(sign&0x8){
            adpcm_sta->val_pre -= pre_diff; 
            if (adpcm_sta->val_pre < -32768)   
                adpcm_sta->val_pre = -32768;   
@@ -517,14 +463,15 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
            if (adpcm_sta->val_pre > 32768)   
                adpcm_sta->val_pre = 32768;   
        }
-       adpcm_sta->index += indexTable[ad_val];
-       if(adpcm_sta->index > sizeof(stepsizeTable) - 1){
-            adpcm_sta->index = sizeof(stepsizeTable) - 1;
+       ad_val |= sign;
+       adpcm_sta->index += indexTable[ad_val&0x7];
+       if(adpcm_sta->index > sizeof(stepsizeTable)/sizeof(int) - 1){
+            adpcm_sta->index = sizeof(stepsizeTable)/sizeof(int) - 1;
        }
        *out |= ((int)ad_val)<<28; 
         /* printf("[ad:%x][eo:%x]", ad_val, *out); */
    }
-   printf("[eo:%x]", *out);
+   /* printf("[eo:%x]", *out); */
    return 0;
    /* adpcm_sta->block_cnt++; */
 }
