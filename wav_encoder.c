@@ -101,7 +101,9 @@ typedef struct {
    int val_pre;
    /* short idDelta;  */
    /* unsigned short block_cnt; */
-   unsigned char index; 
+   char index; 
+   char dir;
+   short idDelta;
 }ADPCM_STA;
 
 
@@ -144,6 +146,23 @@ typedef struct {
     int reserved1 : 4;
     int sample0 : 4;
 }block_point;
+
+static int indexTable[16] = {   
+    -1, -1, -1, -1, 2, 4, 6, 8,   
+    -1, -1, -1, -1, 2, 4, 6, 8,   
+};   
+
+static unsigned int stepsizeTable[89] = {   
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17,   
+    19, 21, 23, 25, 28, 31, 34, 37, 41, 45,   
+    50, 55, 60, 66, 73, 80, 88, 97, 107, 118,   
+    130, 143, 157, 173, 190, 209, 230, 253, 279, 307,   
+    337, 371, 408, 449, 494, 544, 598, 658, 724, 796,   
+    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,   
+    2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,   
+    5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,   
+    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767   
+}; 
 
 static void st_word_func(char *ptr, short val)
 {
@@ -266,7 +285,7 @@ static int wav_out_block(wav_encode *encode)
 {
     int wlen;
     wlen = encode->nch == 2?BLOCK_SIZE*2:BLOCK_SIZE;
-    printf("%s %d\n", __func__, __LINE__);
+    /* printf("%s %d\n", __func__, __LINE__); */
     if(wlen != encode->ops->out_put(encode->priv, encode->bbuf, wlen)){
         printf("out err\n");
         return ENC_OUT_ERR;
@@ -284,8 +303,6 @@ static int wav_encode_run(void *priv)
     short *in_buf;
     wav_encode *encode = priv;
     TWavHeader *header = encode->head;
-    short sam_point;
-    short pre_sam;
     short pcm_data[POINT_PBLOCK];
 
     if(encode == NULL){
@@ -306,10 +323,20 @@ static int wav_encode_run(void *priv)
             }
             MonoBlockHeader *bheadr = out_buf;
             bheadr->sample0 = *in_buf;
+            /* bheadr->sample0 = encode->adpcm_l.val_pre; */
             bheadr->index = encode->adpcm_l.index;
             /* bheadr->sample0 = encode->adpcm_l.val_pre; */
             out_buf = encode->bbuf + sizeof(MonoBlockHeader);
-            printf("pre samp %d, samp0 %d\n", encode->adpcm_l.val_pre, bheadr->sample0);
+            int diff =  encode->adpcm_l.val_pre - bheadr->sample0;
+            if((diff> 200)||(diff < -200)) {
+                printf("pre samp %d, samp0 %d diff %d step %d\n", encode->adpcm_l.val_pre, bheadr->sample0, diff, bheadr->index);
+            }
+            encode->adpcm_l.idDelta = 4; 
+            /* if(diff<0){ */
+            /*     encode->adpcm_l.val_pre = bheadr->sample0 - stepsizeTable[bheadr->index]/(encode->adpcm_l.idDelta *2);  */
+            /* }else{ */
+            /*     encode->adpcm_l.val_pre = bheadr->sample0 + stepsizeTable[bheadr->index]/(encode->adpcm_l.idDelta *2);  */
+            /* } */
             encode->adpcm_l.val_pre = bheadr->sample0;
             /* encode->adpcm_l.val_pre = 0;  */
             encode->block_cnt++; 
@@ -380,37 +407,25 @@ int wav_encode_get_opsinf(encoder_ops_inf *inf, int audio_strem_type)
     return -1;
 }
 
-static int indexTable[16] = {   
-    -1, -1, -1, -1, 2, 4, 6, 8,   
-    -1, -1, -1, -1, 2, 4, 6, 8,   
-};   
-
-static unsigned int stepsizeTable[89] = {   
-    7, 8, 9, 10, 11, 12, 13, 14, 16, 17,   
-    19, 21, 23, 25, 28, 31, 34, 37, 41, 45,   
-    50, 55, 60, 66, 73, 80, 88, 97, 107, 118,   
-    130, 143, 157, 173, 190, 209, 230, 253, 279, 307,   
-    337, 371, 408, 449, 494, 544, 598, 658, 724, 796,   
-    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,   
-    2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,   
-    5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,   
-    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767   
-};   
+  
 
 int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out) 
 {
-   unsigned char ad_val; 
-   short diff_val;
-   short pre_diff;
-   short step;
+   unsigned int ad_val; 
+   int diff_val;
+   int pre_diff;
+   int step;
    char sign;
    int i;
   
    *out = 0; 
+
+   printf("enc block\n");
    for(i = 0; i<8; i++){
        *out >>= 4;
        *out &= 0xfffffff;
-       diff_val = *in - adpcm_sta->val_pre; 
+       diff_val = *in++ - adpcm_sta->val_pre; 
+       /* printf("[diff %d]", diff_val); */
        if(diff_val < 0){
            diff_val = -diff_val;
            sign = 0x8;  
@@ -426,9 +441,9 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
         **      
         */
  
-       /* printf("index %d", adpcm_sta->index); */
        step = stepsizeTable[adpcm_sta->index];
-#if 0 
+       printf("index %d diff %d step %d\n", adpcm_sta->index, diff_val, step);
+#if  0 
        pre_diff = step>>3;
        if(diff_val >= step){
            ad_val |= 0x4;
@@ -448,11 +463,13 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
            pre_diff += step;
        }
 #else
-        ad_val = (diff_val * 4)/step;  
-        ad_val &= 0x7;
-        /* pre_diff = ad_val*step/4 + step/8; */
-        /* pre_diff = diff_val+ (step/8);   */
-        pre_diff = ad_val*step/4 + (step/8);
+        ad_val = (diff_val * adpcm_sta->idDelta)/step;  
+        if(ad_val > 7){
+            ad_val = 7;
+        }
+        /* pre_diff = ad_val*step/4 + step/11; */
+        /* pre_diff = diff_val   */
+        pre_diff = ad_val*step/adpcm_sta->idDelta + step/(adpcm_sta->idDelta *2);
 #endif
        if(sign&0x8){
            adpcm_sta->val_pre -= pre_diff; 
@@ -463,15 +480,18 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
            if (adpcm_sta->val_pre > 32768)   
                adpcm_sta->val_pre = 32768;   
        }
-       ad_val |= sign;
-       adpcm_sta->index += indexTable[ad_val&0x7];
+       adpcm_sta->index += indexTable[ad_val];
        if(adpcm_sta->index > sizeof(stepsizeTable)/sizeof(int) - 1){
             adpcm_sta->index = sizeof(stepsizeTable)/sizeof(int) - 1;
        }
+       if(adpcm_sta->index < 0){
+          adpcm_sta->index = 0;     
+       }
+       ad_val |= sign;
        *out |= ((int)ad_val)<<28; 
-        /* printf("[ad:%x][eo:%x]", ad_val, *out); */
+        printf("[ad:%x][eo:%x]", ad_val, *out);
    }
-   /* printf("[eo:%x]", *out); */
+   printf("[eo:%x]", *out);
    return 0;
    /* adpcm_sta->block_cnt++; */
 }
