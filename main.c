@@ -30,7 +30,7 @@ int out_buf(void *priv, void *buf, int len)
 		return 0;
 	}
 
-    put_buf(buf, len);
+    /* put_buf(buf, len); */
 	ret = fwrite((void *)buf,  1, len, hdl->out_file);
 	printf("write file size %d hd %x file %x buf %x ret %d\n", len, hdl, hdl->out_file, buf, ret);
 	return ret;
