@@ -5,8 +5,8 @@
 #define SYS_BIG_EDIAN   0 
 #define POINT_SIZE      2
 #define POINT_PBLOCK    8
-#define BLOCK_SIZE      512//1024 
-#define SAM_PBLOCK      ((512)*2) 
+#define BLOCK_SIZE      512 
+/* #define SAM_PBLOCK      ((512)*2)  */
 
 #define AUDIO_STREM_TYPE    STREM_USE_BUFF
 
@@ -420,7 +420,7 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
   
    *out = 0; 
 
-   printf("enc block\n");
+   /* printf("enc block\n"); */
    for(i = 0; i<8; i++){
        *out >>= 4;
        *out &= 0xfffffff;
@@ -442,7 +442,7 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
         */
  
        step = stepsizeTable[adpcm_sta->index];
-       printf("index %d diff %d step %d\n", adpcm_sta->index, diff_val, step);
+       /* printf("index %d diff %d step %d\n", adpcm_sta->index, diff_val, step); */
 #if  0 
        pre_diff = step>>3;
        if(diff_val >= step){
@@ -489,158 +489,11 @@ int wav_enc_block(ADPCM_STA *adpcm_sta, short *in, int *out)
        }
        ad_val |= sign;
        *out |= ((int)ad_val)<<28; 
-        printf("[ad:%x][eo:%x]", ad_val, *out);
+        /* printf("[ad:%x][eo:%x]", ad_val, *out); */
    }
-   printf("[eo:%x]", *out);
+   /* printf("[eo:%x]", *out); */
    return 0;
    /* adpcm_sta->block_cnt++; */
 }
 
-#if 0 
-istatic short s_valprev;
-static char s_index;
 
-/* Intel ADPCM step variation table */   
-static int indexTable[16] = {   
-    -1, -1, -1, -1, 2, 4, 6, 8,   
-    -1, -1, -1, -1, 2, 4, 6, 8,   
-};   
-
-static unsigned int stepsizeTable[89] = {   
-    7, 8, 9, 10, 11, 12, 13, 14, 16, 17,   
-    19, 21, 23, 25, 28, 31, 34, 37, 41, 45,   
-    50, 55, 60, 66, 73, 80, 88, 97, 107, 118,   
-    130, 143, 157, 173, 190, 209, 230, 253, 279, 307,   
-    337, 371, 408, 449, 494, 544, 598, 658, 724, 796,   
-    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,   
-    2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,   
-    5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,   
-    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767   
-};   
-
-// 只能在编码开始前调用一次
-void adpcm_thirdparty_reset(void)
-{
-    s_valprev = 0;
-    s_index = 0;
-}
-
-int adpcm_coder(short *indata, unsigned char *outdata, int len)   
-{   
-    short *inp;         /* Input buffer pointer */   
-    unsigned char *outp;/* output buffer pointer */   
-    int val;            /* Current input sample value */   
-    int sign;           /* Current adpcm sign bit */   
-    unsigned int delta; /* Current adpcm output value */   
-    int diff;           /* Difference between val and valprev */   
-    unsigned int udiff; /* unsigned value of diff */   
-    unsigned int step;  /* Stepsize */   
-    int valpred;        /* Predicted output value */   
-    unsigned int vpdiff;/* Current change to valpred */   
-    int index;          /* Current step change index */   
-    unsigned int outputbuffer = 0;/* place to keep previous 4-bit value */   
-    int bufferstep;     /* toggle between outputbuffer/output */   
-    int count = 0;      /* the number of bytes encoded */   
-
-    outp = outdata;   
-    inp = indata;   
-
-    valpred = s_valprev;   
-    index = s_index;   
-    step = stepsizeTable[index];   
-
-    bufferstep = 1;   
-
-    while (len-- > 0 ) {   
-        val = *inp++;   
-
-        /* Step 1 - compute difference with previous value */   
-        diff = val - valpred;   
-        if(diff < 0)   
-        {   
-            sign = 8;   
-            diff = (-diff);   
-        }   
-        else   
-        {   
-            sign = 0;   
-        }   
-        /* diff will be positive at this point */   
-        udiff = (unsigned int)diff;   
-
-        /* Step 2 - Divide and clamp */   
-        /* Note:  
-        ** This code *approximately* computes:  
-        **    delta = diff*4/step;  
-        **    vpdiff = (delta+0.5)*step/4;  
-        ** but in shift step bits are dropped. The net result of this is  
-        ** that even if you have fast mul/div hardware you cannot put it to  
-        ** good use since the fixup would be too expensive.  
-        */   
-        delta = 0;   
-        vpdiff = (step >> 3);   
-
-        if ( udiff >= step ) {   
-            delta = 4;   
-            udiff -= step;   
-            vpdiff += step;   
-        }   
-        step >>= 1;   
-        if ( udiff >= step  ) {   
-            delta |= 2;   
-            udiff -= step;   
-            vpdiff += step;   
-        }   
-        step >>= 1;   
-        if ( udiff >= step ) {   
-            delta |= 1;   
-            vpdiff += step;   
-        }   
-
-        /* Phil Frisbie combined steps 3 and 4 */   
-        /* Step 3 - Update previous value */   
-        /* Step 4 - Clamp previous value to 16 bits */   
-        if ( sign != 0 )   
-        {   
-            valpred -= vpdiff;   
-            if ( valpred < -32768 )   
-                valpred = -32768;   
-        }   
-        else   
-        {   
-            valpred += vpdiff;   
-            if ( valpred > 32767 )   
-                valpred = 32767;   
-        }   
-
-        /* Step 5 - Assemble value, update index and step values */   
-        delta |= sign;   
-
-        index += indexTable[delta];   
-        if ( index < 0 ) index = 0;   
-        if ( index > 88 ) index = 88;   
-        step = stepsizeTable[index];   
-
-        /* Step 6 - Output value */   
-        if ( bufferstep != 0 ) {   
-            outputbuffer = (delta << 4);   
-        } else {   
-            *outp++ = (char)(delta | outputbuffer);   
-            count++;   
-        }   
-        bufferstep = !bufferstep;   
-    }   
-
-    /* Output last step, if needed */   
-    if ( bufferstep == 0 )   
-    {   
-        *outp++ = (char)outputbuffer;   
-        count++;   
-    }   
-
-    s_valprev = (short)valpred;   
-    s_index = (char)index;   
-
-    return count;   
-}
-#endif
